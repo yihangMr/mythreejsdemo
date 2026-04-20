@@ -1,4 +1,9 @@
 <script setup>
+/**
+    基础的场景，相机，物体，渲染器，光源，材质
+*/
+
+
 import { ref, onMounted } from 'vue';
 import * as THREE from 'three';
 const screenDom = ref(null);
