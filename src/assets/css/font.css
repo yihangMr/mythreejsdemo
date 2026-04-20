@@ -1,0 +1,18 @@
+/** 字体 **/
+@font-face {
+	font-family: "HYLingXinJ";
+	src: url(../font/汉仪菱心体简.TTF);
+}
+@font-face {
+	font-family: "Gilroy-Medium";
+	src: url(../font/Gilroy-Medium.otf);
+}
+@font-face {
+	font-family: "PangMenZhengDao";
+	src: url(../font/庞门正道标题体.ttf);
+}
+
+@font-face {
+	font-family: dd;
+	src: url(../font/hylx.ttf);
+}
