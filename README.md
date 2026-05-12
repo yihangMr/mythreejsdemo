@@ -376,3 +376,49 @@ renderer.render(scene, camera);  // 绘制场景，绘制相机。场景里的�
     };
 ```
 
+
+
+
+
+
+
+## 交互控制器OrbitControls
+
+### 代码
+
+**引入**
+
+```
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+```
+
+创建
+
+```
+const controls = new OrbitControls(
+    camera,
+    renderer.domElement
+);
+```
+
+**帧渲染**
+
+注意，每一帧的时候必须要设置controls.update();
+
+```
+const animate = () => {
+    requestAnimationFrame(animate);
+    controls.update(); // 让 controls 计算这一帧摄像机应该在哪
+    renderer.render(scene, camera);
+}
+animate();
+```
+
+### 注意
+
+OrbitControls与鼠标的交互逻辑是：
+OrbitControls会让摄像机朝向一个目标点。
+鼠标左键是围绕着这个目标点旋转。
+鼠标右键是同时移动目标点和摄像机的位置
+
+滚轮是拉近或者拉远 摄像机与目标点的距离。
