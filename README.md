@@ -422,3 +422,40 @@ OrbitControls会让摄像机朝向一个目标点。
 鼠标右键是同时移动目标点和摄像机的位置
 
 滚轮是拉近或者拉远 摄像机与目标点的距离。
+
+
+
+
+
+## position  rotation  scale
+
+ 位置    旋转    缩放
+
+### 弧度
+
+```
+这里  旋转 需要特殊说明
+
+// cube.rotation.x += 0.01;
+// cube.rotation.y += 0.01;
+// cube.rotation.z += 0.01;
+
+每一个轴的旋转方向都是  相对于对应的轴   逆时针旋转。
+
+
+同时  有关旋转的参数 都是 弧度
+PI / 2   是 90度
+PI   是 180度
+
+弧度的本质就是
+“圆弧长度 / 半径”
+```
+
+实际开发中我们可以直接
+
+```
+THREE.MathUtils.degToRad(90) // 获取 90 度的弧度
+
+cube.rotation.y = THREE.MathUtils.degToRad(90);
+```
+

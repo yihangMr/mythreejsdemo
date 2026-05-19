@@ -1,0 +1,45 @@
+export function debounce(fn,delay = 100){
+    let timer = null;
+    return function(...args){
+        clearTimeout(timer);
+        timer = setTimeout(()=>{
+            fn.apply(this,args)
+        },delay)
+    }
+}
+
+export function debounce(fn,delay = 100){
+    let timer = null;
+    return function(...args){
+        if(!timer){
+            fn.apply(this,args);
+        }
+        clearTimeout(timer);
+        timer = setTimeout(()=>{
+            timer = null;
+        },delay);
+    }
+}
+
+
+export function debounce(fn,delay = 100,immediate = false){
+    let timer = null;
+    if(immediate){
+        return function(...args){
+            if(!timer){
+                fn.apply(this,args);
+            }
+            clearTimeout(timer);
+            timer = setTimeout(()=>{
+                timer = null;
+            },delay);
+        }
+    }else{
+        return function(...args){
+            clearTimeout(timer);
+            timer = setTimeout(()=>{
+                fn.apply(this,args)
+            },delay)
+        }
+    }
+}
