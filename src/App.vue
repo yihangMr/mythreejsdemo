@@ -31,10 +31,10 @@ import Mst1 from "@/mst/Mst1.vue"
     <!-- <Demo6></Demo6> -->
 
     <!-- HDR 环境贴图 -->
-    <Demo7></Demo7>
+    <!-- <Demo7></Demo7> -->
 
-    <!-- HDR 环境贴图 -->
-    <!-- <Demo8></Demo8> -->
+    <!--后处理（Post-Processing） -->
+    <Demo8></Demo8>
 
     <!-- 面试题 -->
     <!-- <Mst1></Mst1> -->

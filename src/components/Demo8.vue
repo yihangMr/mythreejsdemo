@@ -1,6 +1,6 @@
 <script setup>
 /**
-   HDR 环境贴图  
+   后处理（Post-Processing）
 */
 
 import { ref, onMounted,onBeforeUnmount } from 'vue';
@@ -9,6 +9,21 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js' // 
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // 🌟 1. 核心：引入专门的 EXR 场景环境加载器
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+
+
+// 🌟 1. 引入后处理核心指挥官
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+// 🌟 2. 引入渲染通道（后处理的第一步：必须先把原始场景画到幕布上）
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+// 🌟 3. 引入科技感的灵魂：辉光通道（让发光物体真正泛光）
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+// 🌟 4. 引入抗锯齿通道（解决后处理带来的“狗牙”锯齿问题）
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+
+
+
+
 const screenDom = ref(null);
 
 let scene = null; // 场景
@@ -21,6 +36,13 @@ let pointer = null;   // 存储鼠标标准二维坐标
 let handleResize = null;
 let modelsGroup = {};
 let rotatingObjects = []; // 👈 专门存放当前正在旋转的物体
+
+
+// 后处理相关变量
+// 定义全局变量，方便后续更新和销毁
+let composer = null;      // 效果合成器
+let bloomPass = null;     // 辉光通道
+let fxaaPass = null;      // 抗锯齿通道
 
 // 初始化场景相机
 const initSceneAndCamera = () => {
@@ -40,7 +62,37 @@ const initSceneAndCamera = () => {
 const initRenderer = () => {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(screenDom.value.clientWidth, screenDom.value.clientHeight);
+
+    // 🌟 注入灵魂：开启电影级 ACES 曝光映射，瞬间驯服暴走的光线
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.5; // 曝光系数，可以根据需要微调（0.8 ~ 1.2）
+
     screenDom.value.appendChild(renderer.domElement);
+}
+
+// 🌟 核心：初始化后处理系统
+const initPostProcessing = () => {
+    // 1. 创建总指挥官 Composer，并把当前的渲染器传给它
+    composer = new EffectComposer(renderer);
+    // 2. 第一道关卡：RenderPass（把原始场景作为底色渲染出来）
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+    // 3. 第二道关卡：UnrealBloomPass（添加赛博朋克辉光）
+    // 参数含义：new UnrealBloomPass( 视口大小, 辉光强度, 辉光半径, 辉光阈值 )
+    bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(screenDom.value.clientWidth, screenDom.value.clientHeight), 
+        0.01,  // 强度 (Strength)：数值越大，发光越刺眼。企业项目推荐 1.0 ~ 2.0
+        0.1,  // 半径 (Radius)：光晕扩散的范围
+        0.9  // 阈值 (Threshold)：亮度超过多少的物体才允许发光。数值越低，发光的范围越广
+    );
+    composer.addPass(bloomPass);
+    // 4. 第三道关卡：FXAA 抗锯齿（解决后处理的边缘粗糙问题）
+    fxaaPass = new ShaderPass(FXAAShader);
+    // 配置 FXAA 的像素比例（公式固定，背下来即可）
+    const pixelRatio = renderer.getPixelRatio();
+    fxaaPass.material.uniforms['resolution'].value.x = 1 / (screenDom.value.clientWidth * pixelRatio);
+    fxaaPass.material.uniforms['resolution'].value.y = 1 / (screenDom.value.clientHeight * pixelRatio);
+    composer.addPass(fxaaPass);
 }
 
 // 初始化交互控制器
@@ -62,9 +114,9 @@ const createCube = () => {
 }
 
 const setLight = () => {
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 5);
-    directionalLight.position.set(5, 5, 5);  // 这里设置光源的位置
-    scene.add(directionalLight);
+    // const directionalLight = new THREE.DirectionalLight(0xffffff, 5);
+    // directionalLight.position.set(5, 5, 5);  // 这里设置光源的位置
+    // scene.add(directionalLight);
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
     scene.add(ambientLight);
 }
@@ -221,6 +273,7 @@ onMounted(()=>{
     initSceneAndCamera();  // 初始化场景相机
     initRenderer();  // 初始化renderer
     initOrbitControls(); // 初始化交互控制器
+    initPostProcessing();  // 🌟 在基础渲染器初始化完后，立刻激活后处理
     let cube = createCube();  // 创建一个几何物体
     cube.position.set(2, 2, 2);
     scene.add(cube);
@@ -233,7 +286,7 @@ onMounted(()=>{
     autoZoom(); // 启动窗口自适应
     initRaycaster();
     window.addEventListener('click', onPointerClick);
-    initHDREnvironment();
+    initHDREnvironment();  // 加载环境贴图
 })
 
 const autoDraw = () => {
@@ -246,7 +299,9 @@ const autoDraw = () => {
             obj.rotation.y += 0.02; 
         });
 
-        renderer.render(scene, camera);
+        if (composer) {
+            composer.render();
+        }
     }
     animate();
 }
@@ -258,6 +313,12 @@ const autoZoom = () => {
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
         renderer.setSize(width, height);
+        if (composer) {
+            composer.setSize(width, height);
+            const pixelRatio = renderer.getPixelRatio();
+            fxaaPass.material.uniforms['resolution'].value.x = 1 / (width * pixelRatio);
+            fxaaPass.material.uniforms['resolution'].value.y = 1 / (height * pixelRatio);
+        }
     });
 }
 
@@ -300,6 +361,12 @@ onBeforeUnmount(() => {
             screenDom.value.removeChild(renderer.domElement);
         }
     }
+    if (composer) {
+        composer.dispose();
+    }
+    composer = null;
+    bloomPass = null;
+    fxaaPass = null;
     window.removeEventListener('click', onPointerClick);
     // F. 置空变量，等待垃圾回收
     scene = null;
