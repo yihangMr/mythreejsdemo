@@ -5,7 +5,8 @@ import Demo3 from "@/components/Demo3.vue"
 import Demo4 from "@/components/Demo4.vue"
 import Demo5 from "@/components/Demo5.vue"
 import Demo6 from "@/components/Demo6.vue"
-
+import Demo7 from "@/components/Demo7.vue"
+import Demo8 from "@/components/Demo8.vue"
 
 import Mst1 from "@/mst/Mst1.vue"
 
@@ -27,7 +28,13 @@ import Mst1 from "@/mst/Mst1.vue"
     <!-- <Demo5></Demo5> -->
 
     <!-- Raycaster（用鼠标点击模型） 与交互  模型锚点修正 -->
-    <Demo6></Demo6>
+    <!-- <Demo6></Demo6> -->
+
+    <!-- HDR 环境贴图 -->
+    <Demo7></Demo7>
+
+    <!-- HDR 环境贴图 -->
+    <!-- <Demo8></Demo8> -->
 
     <!-- 面试题 -->
     <!-- <Mst1></Mst1> -->

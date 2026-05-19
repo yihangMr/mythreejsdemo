@@ -19,6 +19,7 @@ let raycaster = null; // 光线投射器
 let pointer = null;   // 存储鼠标标准二维坐标
 let handleResize = null;
 let modelsGroup = {};
+let rotatingObjects = []; // 👈 专门存放当前正在旋转的物体
 
 // 初始化场景相机
 const initSceneAndCamera = () => {
@@ -176,9 +177,18 @@ const onPointerClick = (event) => {
         // 3. 让整个模型开始旋转（这里先用最基础的帧动画做测试）
         // 后面我们会用更优雅的 GSAP 动画库来实现
         if (topParent) {
-            // 给这个顶级父节点加上一个自定义的旋转标记，让我们在 animate 循环里去让它转
-            topParent.isRotating = !topParent.isRotating; 
-            // console.log(topParent.isRotating ? '开始旋转整架飞机' : '停止旋转整架飞机');
+            // 检查数组里是否已经有它了
+            const index = rotatingObjects.indexOf(topParent);
+            
+            if (index === -1) {
+                // 1. 如果不在队列里，说明要开始转，塞进去
+                rotatingObjects.push(topParent);
+                console.log('加入旋转队列');
+            } else {
+                // 2. 如果已经在队列里了，说明要停止，把它拔掉
+                rotatingObjects.splice(index, 1);
+                console.log('移出旋转队列');
+            }
         }
 
     } else {
@@ -208,12 +218,9 @@ const autoDraw = () => {
         animationFrameId = requestAnimationFrame(animate);
         controls.update();
 
-        // 🌟 遍历场景中的物体，如果有旋转标记，就让它转动
-        scene.traverse((child) => {
-            // 只要是设置了 isRotating 的顶级节点，每帧就转一下
-            if (child.isRotating) {
-                child.rotation.y += 0.02; // 让它绕著 Y 轴旋转
-            }
+        // 🌟 抛弃 scene.traverse！只遍历处于激活状态的旋转物体
+        rotatingObjects.forEach((obj) => {
+            obj.rotation.y += 0.02; 
         });
 
         renderer.render(scene, camera);
@@ -276,6 +283,7 @@ onBeforeUnmount(() => {
     camera = null;
     controls = null;
     renderer = null;
+    rotatingObjects = [];
 });
 </script>
 <template>
