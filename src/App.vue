@@ -7,6 +7,7 @@ import Demo5 from "@/components/Demo5.vue"
 import Demo6 from "@/components/Demo6.vue"
 import Demo7 from "@/components/Demo7.vue"
 import Demo8 from "@/components/Demo8.vue"
+import Demo9 from "@/components/Demo9.vue"
 
 import Mst1 from "@/mst/Mst1.vue"
 
@@ -34,7 +35,11 @@ import Mst1 from "@/mst/Mst1.vue"
     <!-- <Demo7></Demo7> -->
 
     <!--后处理（Post-Processing） -->
-    <Demo8></Demo8>
+    <!-- <Demo8></Demo8> -->
+
+
+    <!--PBR 材质四大核心贴图与自发光 -->
+    <Demo9></Demo9>
 
     <!-- 面试题 -->
     <!-- <Mst1></Mst1> -->

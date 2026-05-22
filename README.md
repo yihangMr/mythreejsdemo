@@ -459,3 +459,430 @@ THREE.MathUtils.degToRad(90) // 获取 90 度的弧度
 cube.rotation.y = THREE.MathUtils.degToRad(90);
 ```
 
+
+
+
+
+## GLTFLoader  外部3D资源
+
+### 文件类型
+
+```
+glTF   3D世界里的 jpg/png
+
+
+glTF 与 glb
+格式	特点
+.gltf	json + 外部资源
+.glb	二进制打包版（最常用）
+```
+
+
+
+### 加载外部资源
+
+```
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+const loadingModel = (path) => {
+    // let _model = null;
+    // 模型加载
+    const loader = new GLTFLoader();
+    loader.load(
+        path, // 模型的路径 (根据你实际的文件名修改)
+        (gltf) => {
+            // 成功回调
+            const model = gltf.scene;
+            
+            // 可以根据模型实际大小缩放或调整位置
+            // model.scale.set(1, 1, 1); 
+            model.position.set(8, 0, 3);
+
+            // ---- 3. 超高频考点：模型遍历 (traverse) ----
+            // 外部模型往往由成百上千个小网格(Mesh)组合而成，我们要批量修改它们
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    // 打印看看模型内部都由什么组成
+                    console.log('检测到子网格:', child.name); 
+                    
+                    // 示例：给模型所有部件开启接收和投射阴影
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+
+                    // 进阶示例（可选）：如果你想统一换成写死的新材质，可以取消注释下面这行
+                    // child.material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+                }
+            });
+
+            // 将加载好的模型放入场景中
+            scene.add(model);
+            // _model = model;
+            console.log('模型加载成功！', gltf);
+        },
+        (xhr) => {
+            // 加载进度回调
+            console.log(`模型加载进度: ${(xhr.loaded / xhr.total * 100).toFixed(2)}%`);
+        },
+        (error) => {
+            // 错误回调
+            console.error('模型加载失败，请检查路径或文件是否损坏', error);
+        }
+    );
+} 
+```
+
+
+
+
+
+### 模型点击事件
+
+three.js的触发点击事件逻辑是，当你点击3d视图的时候，从摄像机坐标发射一个射线，这个射线会检测到他遇到的object然后收集起来，收集到的是一个数组，数组的第一项就是第一个触碰到的物体。
+
+
+
+当我们相对点击的模型进行操作的时候，可以先把点击得到的模型对象收集起来，然后在animate每一帧中遍历收集到的对象，对这些对象进行对应的操作
+
+```
+// 点击事件
+const onPointerClick = (event) => {
+    if (!screenDom.value || !camera || !scene) return;
+
+    // 计算标准化设备坐标 (NDC)
+    const rect = screenDom.value.getBoundingClientRect();
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    // 更新射线
+    raycaster.setFromCamera(pointer, camera);
+
+    // 计算交点（依然传入 true 递归检测子物体，这样才能射中它）
+    const intersects = raycaster.intersectObjects(scene.children, true);
+    
+    if (intersects.length > 0) {
+        // 1. 先拿到最底层的子 Mesh
+        let targetMesh = intersects[0].object;
+        
+        // ❌ 这里要过滤掉坐标轴辅助器（AxesHelper），避免误触
+        if (targetMesh.type === "AxesHelper" || targetMesh.parent?.type === "AxesHelper") {
+            console.log('点中了坐标辅助器，不作处理');
+            return;
+        }
+
+        console.log('射线直接射中的底层子网格:', targetMesh.name || '未命名Mesh');
+
+        // 2. 🌟 核心【寻亲逻辑】：沿着 parent 一路向上找
+        // 目标：找到那个直接挂在 scene 之下，或者属于你模型的顶级父节点
+        let topParent = targetMesh;
+        
+        // 循环向上找，直到它的父节点是 scene (或者你可以判断 topParent 是否等于你的飞机模型变量)
+        // 这样就能确保我们抓到的是“整架飞机”，而不是一个“零件”
+        while (topParent.parent && topParent.parent !== scene) {
+            topParent = topParent.parent;
+        }
+
+        console.log('🎯 成功找到它的顶级父模型（整架飞机）:', topParent);
+
+        // 3. 让整个模型开始旋转（这里先用最基础的帧动画做测试）
+        // 后面我们会用更优雅的 GSAP 动画库来实现
+        if (topParent) {
+            // 检查数组里是否已经有它了
+            const index = rotatingObjects.indexOf(topParent);
+            
+            if (index === -1) {
+                // 1. 如果不在队列里，说明要开始转，塞进去
+                rotatingObjects.push(topParent);
+                console.log('加入旋转队列');
+            } else {
+                // 2. 如果已经在队列里了，说明要停止，把它拔掉
+                rotatingObjects.splice(index, 1);
+                console.log('移出旋转队列');
+            }
+        }
+
+    } else {
+        console.log('你射向了虚无');
+    }
+}
+```
+
+
+
+
+
+### 模型锚点，自转
+
+3d模型在美工导出的时候会自带一个锚点，这个锚点不一定就是模型视图，包围盒的中心点，因此让模型围绕着某个轴旋转的时候，实际上是围绕着这个锚点旋转，会导致模型并不是自转。
+
+我们可以在前端使用包围盒计算中心点。
+
+原理是
+
+
+
+```
+const loadingModel = (path,key) => {
+    // 模型加载
+    const loader = new GLTFLoader();
+    loader.load(path,(gltf) => {
+            // 成功回调
+            const model = gltf.scene;
+
+            // 模型锚点修正
+            // 1. 创建一个绝对干净的空外壳（Group）
+            const wrapperGroup = new THREE.Group();
+            scene.add(wrapperGroup);
+            // 2. 🌟 核心：计算飞机模型的几何中心
+            const box = new THREE.Box3().setFromObject(model);
+            const center = new THREE.Vector3();
+            box.getCenter(center); // 获取飞机肉眼可见的中心点坐标
+
+            // 3. 把飞机的身体往反方向平移，让它的几何中心强行和外壳的 (0,0,0) 重合
+            model.position.sub(center); 
+
+            // 4. 把飞机塞进外壳里
+            wrapperGroup.add(model);
+
+            // 5. 以后你移动、或者旋转，全部操作这个 wrapperGroup！
+            // wrapperGroup.position.set(8, 0, 3); // 随便放哪
+            
+            // 把外壳存起来用于后续点击和旋转
+            modelsGroup[key || path] = wrapperGroup;
+            
+            // 可以根据模型实际大小缩放或调整位置
+            model.scale.set(1, 1, 1);
+
+            // ---- 3. 超高频考点：模型遍历 (traverse) ----
+            // 外部模型往往由成百上千个小网格(Mesh)组合而成，我们要批量修改它们
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    // 打印看看模型内部都由什么组成
+                    console.log('检测到子网格:', child.name); 
+                    
+                    // 示例：给模型所有部件开启接收和投射阴影
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+
+                    // 进阶示例（可选）：如果你想统一换成写死的新材质，可以取消注释下面这行
+                    // child.material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+                }
+            });
+            // modelsGroup[key || path] = model;
+            // 将加载好的模型放入场景中
+            // scene.add(model);
+            // _model = model;
+            console.log('模型加载成功！', gltf);
+        },
+        (xhr) => {
+            // 加载进度回调
+            // console.log(`模型加载进度: ${(xhr.loaded / xhr.total * 100).toFixed(2)}%`);
+        },
+        (error) => {
+            // 错误回调
+            console.error('模型加载失败，请检查路径或文件是否损坏', error);
+        }
+    );
+} 
+
+
+
+const autoDraw = () => {
+    const animate = () => {
+        animationFrameId = requestAnimationFrame(animate);
+        controls.update();
+
+        // 🌟 抛弃 scene.traverse！只遍历处于激活状态的旋转物体
+        rotatingObjects.forEach((obj) => {
+            obj.rotation.y += 0.02; 
+        });
+
+        renderer.render(scene, camera);
+    }
+    animate();
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+## HDR 环境贴图
+
+Poly Haven (原 HDRI Haven)
+
+**网址**：https://polyhaven.com/hdris
+
+`.exr`，它和 `.hdr` 本质上都是高动态范围图像
+
+RGBELoader加载`.hdr`
+
+**`EXRLoader`**  加载`.exr`，
+
+```
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+
+
+// 🌟 核心：初始化 HDR (EXR) 环境贴图
+const initHDREnvironment = () => {
+    const exrLoader = new EXRLoader();
+    // 路径指向你放在 public 下的资源
+    exrLoader.load('/HDR/hdr1.exr', (texture) => {
+        // 1. 设置贴图的映射方式为“等距柱状投影球体”（类似把图片完整包裹在球体内部）
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        // 2. 🌟 将贴图直接作为场景的背景（肉眼能看见摄影棚）
+        scene.background = texture;
+        // 3. 🌟 灵魂一步：将贴图作为场景所有物体的环境光照（模型会自动反射出摄影棚的高光）
+        scene.environment = texture;
+        console.log('EXR 环境贴图加载并应用成功！');
+    }, (xhr) => {
+        // 进度回调
+    }, (error) => {
+        console.error('EXR 加载失败，请检查路径是否正确', error);
+    });
+}
+```
+
+
+
+
+
+
+
+
+
+## 后处理（Post-Processing）
+
+### 1. Bloom Pass（辉光/泛光Pass）—— 💡【科技感的灵魂】
+
+- **效果**：让场景中原本发光的物体（比如飞机的探照灯、科幻线条、荧光材质）真正**向外散发出耀眼、朦胧的光晕**。
+- **应用场景**：赛博朋克霓虹灯、能量护盾、激光、智慧城市中发光的建筑线条。
+
+### 2. Outline Pass（高亮边框Pass）—— 🎯【工业交互的刚需】
+
+- **效果**：当你用鼠标划过或者点击某个模型时，在模型的边缘生成一圈**发光的呼吸高亮外轮廓线条**。
+- **应用场景**：物联网（IoT）设备故障报警、选中某个厂房时让厂房闪烁高亮。
+
+### 3. FXAA / SMAA Pass（抗锯齿Pass）—— 📐【画质拯救者】
+
+- **效果**：当你开启后处理后，Three.js 自带的 `antialias: true` 会失效。模型边缘会出现极其难看的“狗牙（锯齿）”。我们必须加入一个抗锯齿 Pass，强行把边缘修平整，恢复电影级的细腻画质。
+
+
+
+```
+
+// 🌟 1. 引入后处理核心指挥官
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+// 🌟 2. 引入渲染通道（后处理的第一步：必须先把原始场景画到幕布上）
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+// 🌟 3. 引入科技感的灵魂：辉光通道（让发光物体真正泛光）
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+// 🌟 4. 引入抗锯齿通道（解决后处理带来的“狗牙”锯齿问题）
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+
+
+
+// 后处理相关变量
+// 定义全局变量，方便后续更新和销毁
+let composer = null;      // 效果合成器
+let bloomPass = null;     // 辉光通道
+let fxaaPass = null;      // 抗锯齿通道
+
+
+
+// 初始化renderer   开启曝光映射，防止后处理的超级闪光弹
+const initRenderer = () => {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(screenDom.value.clientWidth, screenDom.value.clientHeight);
+
+    // 🌟 注入灵魂：开启电影级 ACES 曝光映射，瞬间驯服暴走的光线
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.5; // 曝光系数，可以根据需要微调（0.8 ~ 1.2）
+
+    screenDom.value.appendChild(renderer.domElement);
+}
+
+
+
+
+// 🌟 核心：初始化后处理系统
+const initPostProcessing = () => {
+    // 1. 创建总指挥官 Composer，并把当前的渲染器传给它
+    composer = new EffectComposer(renderer);
+    // 2. 第一道关卡：RenderPass（把原始场景作为底色渲染出来）
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+    // 3. 第二道关卡：UnrealBloomPass（添加赛博朋克辉光）
+    // 参数含义：new UnrealBloomPass( 视口大小, 辉光强度, 辉光半径, 辉光阈值 )
+    bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(screenDom.value.clientWidth, screenDom.value.clientHeight), 
+        0.01,  // 强度 (Strength)：数值越大，发光越刺眼。企业项目推荐 1.0 ~ 2.0
+        0.1,  // 半径 (Radius)：光晕扩散的范围
+        0.9  // 阈值 (Threshold)：亮度超过多少的物体才允许发光。数值越低，发光的范围越广
+    );
+    composer.addPass(bloomPass);
+    // 4. 第三道关卡：FXAA 抗锯齿（解决后处理的边缘粗糙问题）
+    fxaaPass = new ShaderPass(FXAAShader);
+    // 配置 FXAA 的像素比例（公式固定，背下来即可）
+    const pixelRatio = renderer.getPixelRatio();
+    fxaaPass.material.uniforms['resolution'].value.x = 1 / (screenDom.value.clientWidth * pixelRatio);
+    fxaaPass.material.uniforms['resolution'].value.y = 1 / (screenDom.value.clientHeight * pixelRatio);
+    composer.addPass(fxaaPass);
+}
+
+// 我们可以关闭掉太阳光，只使用场景光
+const setLight = () => {
+    // const directionalLight = new THREE.DirectionalLight(0xffffff, 5);
+    // directionalLight.position.set(5, 5, 5);  // 这里设置光源的位置
+    // scene.add(directionalLight);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
+    scene.add(ambientLight);
+}
+
+
+// render的时候就不能使用 renderer了  要使用composer
+const autoDraw = () => {
+    const animate = () => {
+        animationFrameId = requestAnimationFrame(animate);
+        controls.update();
+
+        // 🌟 抛弃 scene.traverse！只遍历处于激活状态的旋转物体
+        rotatingObjects.forEach((obj) => {
+            obj.rotation.y += 0.02; 
+        });
+
+        if (composer) {
+            composer.render();
+        }
+    }
+    animate();
+}
+
+
+// autoZoom的时候不仅仅要改变renderer还要改变composer
+const autoZoom = () => {
+    handleResize = window.addEventListener('resize', () => {
+        const width = screenDom.value.clientWidth;
+        const height = screenDom.value.clientHeight;
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+        if (composer) {
+            composer.setSize(width, height);
+            const pixelRatio = renderer.getPixelRatio();
+            fxaaPass.material.uniforms['resolution'].value.x = 1 / (width * pixelRatio);
+            fxaaPass.material.uniforms['resolution'].value.y = 1 / (height * pixelRatio);
+        }
+    });
+}
+
+```
+
+
+
