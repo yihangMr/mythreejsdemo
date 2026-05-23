@@ -8,6 +8,7 @@ import Demo6 from "@/components/Demo6.vue"
 import Demo7 from "@/components/Demo7.vue"
 import Demo8 from "@/components/Demo8.vue"
 import Demo9 from "@/components/Demo9.vue"
+import Demo10 from "@/components/Demo10.vue"
 
 import Mst1 from "@/mst/Mst1.vue"
 
@@ -39,7 +40,10 @@ import Mst1 from "@/mst/Mst1.vue"
 
 
     <!--PBR 材质四大核心贴图与自发光 -->
-    <Demo9></Demo9>
+    <!-- <Demo9></Demo9> -->
+
+    <!--动效系统的双线并进  Blender 骨骼动画/内嵌动画提取    粒子系统与科幻背景-->
+    <Demo10></Demo10>
 
     <!-- 面试题 -->
     <!-- <Mst1></Mst1> -->
