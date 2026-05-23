@@ -20,6 +20,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 // 🌟 4. 引入抗锯齿通道（解决后处理带来的“狗牙”锯齿问题）
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+import {controlAnimation} from "@/utils/tool.js"
 
 
 import { gsap } from 'gsap';
@@ -81,6 +82,10 @@ let activeMixers = new Set();
 let composer = null;      // 效果合成器
 let bloomPass = null;     // 辉光通道
 let fxaaPass = null;      // 抗锯齿通道
+
+
+
+
 
 // 初始化场景相机
 const initSceneAndCamera = () => {
@@ -197,13 +202,7 @@ const loadingModel = (path,key,useGruop) => {
 
                     // 3. 给播放器绑定结束事件：一旦这台录音机把磁带放完了，就会触发这个回调
                     m.addEventListener('finished', (e) => {
-                        console.log(`🎬 动画播放完毕，触发完全重置归零。`);
-                        
-                        // 操控 Action 遥控器：让磁带强制倒带回第 0 帧，并彻底停下（还原初始姿态）
-                        e.action.stop(); 
-                        e.action.paused = false;
-                        // 性能优化：既然动画彻底放完了，把它从动态更新队列里移出
-                        activeMixers.delete(m);
+                        controlAnimation(e.action, m, activeMixers, 'stop');
                     });
                 }
                 modelsGroup[wrapperGroup.uuid] = {
@@ -230,13 +229,7 @@ const loadingModel = (path,key,useGruop) => {
 
                     // 3. 给播放器绑定结束事件：一旦这台录音机把磁带放完了，就会触发这个回调
                     m.addEventListener('finished', (e) => {
-                        console.log(`🎬 动画播放完毕，触发完全重置归零。`);
-                        
-                        // 操控 Action 遥控器：让磁带强制倒带回第 0 帧，并彻底停下（还原初始姿态）
-                        e.action.stop(); 
-                        e.action.paused = false;
-                        // 性能优化：既然动画彻底放完了，把它从动态更新队列里移出
-                        activeMixers.delete(m);
+                        controlAnimation(e.action, m, activeMixers, 'stop');
                     });
                 }
                 modelsGroup[model.uuid] = {
@@ -273,6 +266,8 @@ const initRaycaster = () => {
     raycaster = new THREE.Raycaster();
     pointer = new THREE.Vector2();
 }
+
+
 // 点击事件
 const onPointerClick = (event) => {
     if (!screenDom.value || !camera || !scene) return;
@@ -310,45 +305,21 @@ const onPointerClick = (event) => {
         if (topParent) {
             let modelData = modelsGroup[topParent.uuid];
             if (!modelData) return;
-            let action = modelData.action; // 直接拿到提前做好的磁带
-            let mixer = modelData.mixer; // 直接拿到提前做好的播放器
-            if (action && mixer){
-                if (!action.isRunning()) {
-                    // 【情况 A】动画当前没有在跑（比如刚加载完，或者之前已经播完触发了 stop() 归零了）
-                    action.paused = false;
-                    action.play();            // 让遥控器按下播放键
-                    activeMixers.add(mixer);      // 塞进帧循环队列，开始通电驱动
-                    console.log('▶️ 动画开始初次/重新播放');
-                    gsap.killTweensOf(camera.position);
-                    const targetPos = topParent.position;
-                    gsap.to(camera.position, {
-                        x: targetPos.x,
-                        y: targetPos.y + 7,
-                        z: targetPos.z + 4,
-                        duration: 1.8,
-                        ease: "power3.out",
-                        onUpdate: () => {
-                            controls.target.copy(targetPos);
-                            controls.update(); 
-                        }
-                    });
-                } else {
-                    // 【情况 B】动画当前正在运行，用户又点了一下它
-                    // 我们直接修改 Action 遥控器的 paused 属性（取反切换状态）
-                    action.paused = !action.paused;
-                    
-                    if (action.paused) {
-                        console.log('⏸️ 凌空暂停！Action.paused 设为 true');
-                        // 既然被按了暂停，帧循环就没必要每帧去更新它了，移出更新队列
-                        activeMixers.delete(mixer);
-                    } else {
-                        console.log('▶️ 原地继续！Action.paused 设为 false');
-                        // 🌟 严谨：确保由于各种机制可能断电的播放器重新通电
-                        action.play(); 
-                        activeMixers.add(mixer);
+            if (modelData.action.paused) {
+                const targetPos = topParent.position;
+                gsap.to(camera.position, {
+                    x: targetPos.x,
+                    y: targetPos.y + 7,
+                    z: targetPos.z + 4,
+                    duration: 1.8,
+                    ease: "power3.out",
+                    onUpdate: () => {
+                        controls.target.copy(targetPos);
+                        controls.update(); 
                     }
-                }
+                });
             }
+            controlAnimation(modelData.action, modelData.mixer, activeMixers, 'toggle');
         }
 
     } else {
