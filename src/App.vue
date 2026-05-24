@@ -9,6 +9,7 @@ import Demo7 from "@/components/Demo7.vue"
 import Demo8 from "@/components/Demo8.vue"
 import Demo9 from "@/components/Demo9.vue"
 import Demo10 from "@/components/Demo10.vue"
+import Demo11 from "@/components/Demo11.vue"
 
 import Mst1 from "@/mst/Mst1.vue"
 
@@ -42,8 +43,11 @@ import Mst1 from "@/mst/Mst1.vue"
     <!--PBR 材质四大核心贴图与自发光 -->
     <!-- <Demo9></Demo9> -->
 
-    <!--动效系统的双线并进  Blender 骨骼动画/内嵌动画提取    粒子系统与科幻背景-->
-    <Demo10></Demo10>
+    <!--动效系统的双线并进  Blender 骨骼动画/内嵌动画提取    粒子系统与科幻背景  材质贴图-->
+    <!-- <Demo10></Demo10> -->
+
+    <!--  CSS2DRenderer / CSS3DRenderer 标签跟随同步  地图悬浮面板 三维坐标转屏幕坐标 -->
+    <Demo11></Demo11>
 
     <!-- 面试题 -->
     <!-- <Mst1></Mst1> -->

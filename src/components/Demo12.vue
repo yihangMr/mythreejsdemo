@@ -1,6 +1,6 @@
 <script setup>
 /**
-   动效系统的双线并进  Blender 骨骼动画/内嵌动画提取    粒子系统与科幻背景  材质贴图
+   CSS2DRenderer / CSS3DRenderer 标签跟随同步  地图悬浮面板 三维坐标转屏幕坐标
 */
 
 import { ref, onMounted,onBeforeUnmount } from 'vue';
@@ -9,6 +9,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js' // 
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // 🌟 1. 核心：引入专门的 EXR 场景环境加载器
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
 
 // 🌟 1. 引入后处理核心指挥官
@@ -58,7 +59,7 @@ const pavingMaterial = new THREE.MeshStandardMaterial({
 
 
 const screenDom = ref(null);
-
+let labelRenderer = null; // 全局声明 CSS2D 渲染器
 let scene = null; // 场景
 let camera = null; // 摄像机
 let controls = null; // 控制器
@@ -80,7 +81,17 @@ let bloomPass = null;     // 辉光通道
 let fxaaPass = null;      // 抗锯齿通道
 
 
-
+const labelList = ref([
+    {
+        id: 'A01',
+        name: '智能储能设备 A01',
+        pos3D: new THREE.Vector3(0, 2, 0), // 3D 空间坐标
+        screenX: 0, // 等待动态计算
+        screenY: 0,
+        visible: true, // 是否在相机前方可见
+        data: { battery: 85 }
+    }
+]);
 
 
 // 初始化场景相机
@@ -102,11 +113,49 @@ const initRenderer = () => {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(screenDom.value.clientWidth, screenDom.value.clientHeight);
 
+
     // 🌟 注入灵魂：开启电影级 ACES 曝光映射，瞬间驯服暴走的光线
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.5; // 曝光系数，可以根据需要微调（0.8 ~ 1.2）
 
     screenDom.value.appendChild(renderer.domElement);
+
+    // 2. 🌟 核心新增：初始化 CSS2D 渲染器
+    labelRenderer = new CSS2DRenderer();
+    labelRenderer.setSize(screenDom.value.clientWidth, screenDom.value.clientHeight);
+    labelRenderer.domElement.style.position = 'absolute';
+    labelRenderer.domElement.style.top = '0px';
+    labelRenderer.domElement.style.pointerEvents = 'none';
+    screenDom.value.appendChild(labelRenderer.domElement);
+}
+
+
+const createCubeWithLabel = () => {
+    // 1. 创建常规 3D 立方体
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    const cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+
+    // 2. 🌟 核心新增：用纯 JS 原生语法造一个完美的 HTML 标签
+    const div = document.createElement('div');
+    div.className = 'my-custom-label';
+    div.textContent = '智能储能设备 A01';
+    div.style.color = '#ffffff';
+    div.style.background = 'rgba(0,0,0,0.7)';
+    div.style.padding = '4px 8px';
+    div.style.borderRadius = '4px';
+    div.style.border = '1px solid #00ffff';
+    // 如果标签内部有按钮需要点击，记得在这里开启事件穿透回复：div.style.pointerEvents = 'auto';
+
+    // 3. 🌟 核心一步：用 CSS2DObject 把这个 DOM 节点包装成 3D 空间对象
+    const labelObj = new CSS2DObject(div);
+    
+    // 4. 调整标签相对于立方体中心的偏移（比如往上飘一点，免得挡住方块）
+    labelObj.position.set(0, 1.2, 0); 
+    
+    // 5. 直接作为子节点 add 到立方体身上！这样立方体动，标签就会自动跟着动
+    cube.add(labelObj); 
 }
 
 // 🌟 核心：初始化后处理系统
@@ -270,7 +319,7 @@ const onPointerClick = (event) => {
         // 后面我们会用更优雅的 GSAP 动画库来实现
         if (topParent) {
             let modelData = modelsGroup[topParent.uuid];
-            if (!modelData) return;
+            if (!modelData || !modelData.action) return;
             if (modelData.action.paused) {
                 const targetPos = topParent.position;
                 gsap.to(camera.position, {
@@ -351,6 +400,7 @@ onMounted(()=>{
     
     loadingModel('/models/feiji.glb',"飞机",true); // 加载模型
     loadingModel('/models/angel.glb',"天使");
+    // createCubeWithLabel();
     autoDraw(); // 启动渲染循环
     
     // 4. 绑定自适应事件
@@ -371,6 +421,30 @@ const autoDraw = () => {
         });
         if (composer) {
             composer.render();
+        }
+        if (labelRenderer) {
+            labelRenderer.render(scene, camera); 
+        }
+
+
+        // 🌟 核心：在每一帧批量更新 Vue 标签的屏幕像素位置
+        if (scene && camera && screenDom.value) {
+            const width = screenDom.value.clientWidth;
+            const height = screenDom.value.clientHeight;
+
+            labelList.value.forEach(label => {
+                const vector = label.pos3D.clone();
+                vector.project(camera);
+
+                // 🌟 面试高级加分点：如果 vector.z > 1，说明物体跑到相机背面去了，直接隐藏
+                if (vector.z > 1) {
+                    label.visible = false;
+                } else {
+                    label.visible = true;
+                    label.screenX = (vector.x * 0.5 + 0.5) * width;
+                    label.screenY = (-vector.y * 0.5 + 0.5) * height;
+                }
+            });
         }
     }
     animate();
@@ -407,6 +481,7 @@ const onWindowResize = () => {
         fxaaPass.material.uniforms['resolution'].value.x = 1 / (width * pixelRatio);
         fxaaPass.material.uniforms['resolution'].value.y = 1 / (height * pixelRatio);
     }
+    if (labelRenderer) labelRenderer.setSize(width, height);
 };
 
 // 🌟 4. 核心：组件卸载/热更新时执行彻底清理
@@ -415,6 +490,10 @@ onBeforeUnmount(() => {
     if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
     }
+    if (labelRenderer && labelRenderer.domElement && screenDom.value) {
+        screenDom.value.removeChild(labelRenderer.domElement);
+    }
+    labelRenderer = null;
     window.removeEventListener('resize', onWindowResize);
     // C. 深度遍历场景，手动释放几何体和材质（显存回收）
     if (scene) {
@@ -466,11 +545,39 @@ onBeforeUnmount(() => {
 </script>
 <template>
     <div class="three_view" ref="screenDom">
+        
+        <div class="global-labels-wrapper">
+            <div 
+                v-for="item in labelList" 
+                :key="item.id"
+                v-show="item.visible"
+                class="gis-panel-absolute"
+                :style="{ left: item.screenX + 'px', top: item.screenY + 'px' }"
+            >
+                111111
+            </div>
+        </div>
 
     </div>
 </template>
 
 <style scoped lang="less">
+.global-labels-wrapper{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;       /* 🌟 让它跟 3D 画布一模一样大 */
+    height: 100%;      /* 🌟 这样它里面的 left/top 像素点就跟 3D 窗口完美重合了 */
+    pointer-events: none; 
+    z-index: 10;       /* 确保 Vue 标签层漂浮在 Three.js 画布 <canvas> 的正上方 */
+}
+.gis-panel-absolute {
+    position: absolute;
+    transform: translate(-50%, -100%); 
+    will-change: top, left; 
+    pointer-events: auto;
+}
+
 .btn_view{
     position: fixed;
     top: 10px;
@@ -491,9 +598,11 @@ onBeforeUnmount(() => {
     }
 }
 .three_view{
-    width: 100%;
-    height: 100%;
+    width: 100%;         /* 故意设为非满屏，比如占个半屏，测试它也绝对不会错位 */
+    height: 100%;      /* 固定高度 */
     background-color: #000; /* 通常 3D 场景背景设为黑色或透明 */
+    position: relative;
+    overflow: hidden;   /* 遮住超出容器的标签 */
 }
 </style>>
 
