@@ -1,6 +1,6 @@
 <script setup>
 /**
-   THREE.InstancedMesh —— 解决“同类物体数量过多”的卡顿。
+   THREE.LOD —— 解决“单模型面数过高、视距过远”的卡顿。LOD与InstancedMesh结合实现大量的lod模型绘制
 */
 
 import { ref, onMounted,onBeforeUnmount } from 'vue';
@@ -160,48 +160,6 @@ const setLight = () => {
     scene.add(ambientLight);
 }
 
-
-// 🌟 2. 核心：创建 InstancedMesh
-const createInstances = () => {
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
-  // 注意：材质必须是同一个实例
-  const material = new THREE.MeshStandardMaterial({ color: 0x00ff88 });
-
-  // 参数：(几何体, 材质, 最大数量)
-  instancedMesh = new THREE.InstancedMesh(geometry, material, count);
-  
-  // 临时虚拟对象，用来帮我们计算每一个实例的 变换矩阵（位置、旋转、缩放）
-  const dummy = new THREE.Object3D();
-  const color = new THREE.Color();
-
-  for (let i = 0; i < count; i++) {
-    // 随机一个分布在空间中的坐标
-    const x = (Math.random() - 0.5) * 60;
-    const y = (Math.random() - 0.5) * 60;
-    const z = (Math.random() - 0.5) * 60;
-
-    dummy.position.set(x, y, z);
-    
-    // 随机一点点旋转
-    dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-    
-    // 🌟 核心一步：必须把 dummy 的位置、旋转信息更新到它内部的矩阵中
-    dummy.updateMatrix();
-
-    // 🌟 核心两步：把这个矩阵赋予 InstancedMesh 的第 i 个实例
-    instancedMesh.setMatrixAt(i, dummy.matrix);
-
-    // 🌟 进阶：你还可以单独给每一个小方块设置不同的颜色！
-    color.setHex(Math.random() * 0xffffff);
-    instancedMesh.setColorAt(i, color);
-  }
-
-  // 全部设置完后，通知 Three.js 更新实例数据
-  instancedMesh.instanceMatrix.needsUpdate = true;
-  if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
-
-  scene.add(instancedMesh);
-};
 
 const loadingModel = (path,key,useGruop) => {
     const loader = new GLTFLoader();
@@ -367,7 +325,99 @@ const creatFloor = () => {
     floor.position.y = 0;            // 贴在水平面
     return floor;
 }
+let daisyLOD = null;
+const loadDaisyLOD = () => {
+    daisyLOD = new THREE.LOD();
+    const loader = new GLTFLoader();
 
+    loader.load('/models/lod.glb', (gltf) => {
+        let lod0Mesh = null;
+        let lod1Mesh = null;
+        let lod2Mesh = null;
+        // 1. 遍历模型里的所有零件
+        gltf.scene.traverse((child) => {
+            if (child.isMesh) {
+                if (child.name.includes('Daisy_1_LOD0') && !lod0Mesh) lod0Mesh = child.clone();
+                if (child.name.includes('Daisy_1_LOD1') && !lod1Mesh) lod1Mesh = child.clone();
+                if (child.name.includes('Daisy_1_LOD2') && !lod2Mesh) lod2Mesh = child.clone();
+            }
+        });
+        if (lod0Mesh && lod1Mesh && lod2Mesh) {
+            // 🌟 3. 规范做法：子网格全部在内部归零，消除建模可能自带的位移偏差
+            lod0Mesh.position.set(0, 0, 0);
+            lod1Mesh.position.set(0, 0, 0);
+            lod2Mesh.position.set(0, 0, 0);
+            // 4. 将不同精度的衣服，登记到对应的视距控制线上
+            daisyLOD.addLevel(lod0Mesh, 0);   // 0 到 5 米（贴近看）：完美高精
+            daisyLOD.addLevel(lod1Mesh, 5);   // 5 到 15 米（中景）：中等精度
+            daisyLOD.addLevel(lod2Mesh, 15);  // 15 米开外（远景）：突变成纸片
+            // 🌟 5. 要移动或者放大，统一对【总容器】进行操作
+            daisyLOD.position.set(3, 0, 0);   // 让整套 LOD 系统呆在 (3,0,0)
+            daisyLOD.scale.set(5, 5, 5);      // 整体放大 5 倍、
+            daisyLOD.rotation.x = -Math.PI / 2;
+            scene.add(daisyLOD);
+        } 
+    });
+};
+
+
+// 顶层变量声明
+let instanceCount = 1000; // 长出 1000 棵草
+let highInstance, midInstance, lowInstance;
+let grassPositions = []; // 储存所有草的原始位置数据，用于每帧算距离
+const loadDaisyInstances = () => {
+  const loader = new GLTFLoader();
+
+  loader.load('/models/lod.glb', (gltf) => {
+    let lod0Mesh = null;
+    let lod1Mesh = null;
+    let lod2Mesh = null;
+
+    gltf.scene.traverse((child) => {
+      if (child.isMesh) {
+        if (child.name.includes('Daisy_1_LOD0') && !lod0Mesh) lod0Mesh = child;
+        if (child.name.includes('Daisy_1_LOD1') && !lod1Mesh) lod1Mesh = child;
+        if (child.name.includes('Daisy_1_LOD2') && !lod2Mesh) lod2Mesh = child;
+      }
+    });
+
+    if (lod0Mesh && lod1Mesh && lod2Mesh) {
+      const geo0 = lod0Mesh.geometry.clone();
+      const geo1 = lod1Mesh.geometry.clone();
+      const geo2 = lod2Mesh.geometry.clone();
+
+      highInstance = new THREE.InstancedMesh(geo0, lod0Mesh.material, instanceCount);
+      midInstance = new THREE.InstancedMesh(geo1, lod1Mesh.material, instanceCount);
+      lowInstance = new THREE.InstancedMesh(geo2, lod2Mesh.material, instanceCount);
+
+      highInstance.count = 0;
+      midInstance.count = 0;
+      lowInstance.count = 0;
+
+      // 3. 随机生成 1000 棵草的世界坐标并【赋予旋转参数】
+      for (let i = 0; i < instanceCount; i++) {
+        grassPositions.push({
+          x: (Math.random() - 0.5) * 100,
+          y: 0, 
+          z: (Math.random() - 0.5) * 100,
+          scale: 5 + Math.random() * 2, // 保持你之前放大的倍数习惯
+          
+          // 🌟 核心：基础 Pitch 为 -90度 (-Math.PI / 2) 让它站起来
+          pitch: -Math.PI / 2,
+          // 🌟 进阶：偏航角 Yaw 360度随机，让草的方向各不相同，更逼真
+          yaw: Math.random() * Math.PI * 2,
+          roll: 0
+        });
+      }
+
+      scene.add(highInstance);
+      scene.add(midInstance);
+      scene.add(lowInstance);
+      
+      console.log("1000棵草丛群落实例化初始化成功！");
+    }
+  });
+};
 
 onMounted(()=>{
     initSceneAndCamera();  // 初始化场景相机
@@ -387,7 +437,8 @@ onMounted(()=>{
     const axesHelper = new THREE.AxesHelper(5);
     scene.add(axesHelper);
     loadingModel('/models/feiji.glb',"飞机",true); // 加载模型
-    createInstances();
+    loadDaisyLOD();
+    loadDaisyInstances();
     autoDraw(); // 启动渲染循环
     // 4. 绑定自适应事件
     window.addEventListener('resize', onWindowResize);
@@ -397,66 +448,69 @@ onMounted(()=>{
     initHDREnvironment();  // 加载环境贴图
     
 })
+// 🌟 在函数外部定义一个全局复用的虚拟工具人，拒绝每帧 new
+const instanceDummy = new THREE.Object3D(); 
 
 const autoDraw = () => {
     const animate = () => {
         animationFrameId = requestAnimationFrame(animate);
-        if (instancedMesh) {
-            const dummy = new THREE.Object3D();
-            const matrix = new THREE.Matrix4();
-            const time = Date.now() * 0.001;
+        if (controls) controls.update();
+        const delta = clock.getDelta();
+        activeMixers.forEach(mixer => { mixer.update(delta); });
+        
+        if (composer) { composer.render(); }
+        if (labelRenderer) { labelRenderer.render(scene, camera); }
+        if (daisyLOD && camera) { daisyLOD.update(camera); }
+        
+        // 🌟 动态分流与旋转应用逻辑
+        if (highInstance && midInstance && lowInstance && camera) {
             
-            // 🌟 性能小建议：避免在 for 循环里反复 new 对象，把它们提到循环外面复用
-            const position = new THREE.Vector3();
-            const quaternion = new THREE.Quaternion();
-            const scale = new THREE.Vector3();
+            let hCount = 0;
+            let mCount = 0;
+            let lCount = 0;
 
-            for (let i = 0; i < count; i++) {
-                // 1. 伸手去大表格里，把第 i 个方块的【16位数字矩阵】复制一份存到 matrix 变量里
-                instancedMesh.getMatrixAt(i, matrix);
+            const camPos = camera.position;
+
+            for (let i = 0; i < instanceCount; i++) {
+                const grass = grassPositions[i];
                 
-                // 2. 【核心卡点：拆解】
-                // 这 16 个数字全和泥巴一样粘在一起，我们人类看不懂，没法直接给它加减位移。
-                // 所以调用 decompose(position, quaternion, scale)，强行把矩阵拆开！
-                // 拆完后，具体的坐标进到 position 变量，旋转进到 quaternion，大小进到 scale
-                matrix.decompose(position, quaternion, scale);
+                // 计算平面距离
+                const dx = grass.x - camPos.x;
+                const dz = grass.z - camPos.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
 
-                // 3. 把这三份刚拆出来的明白数据，原封不动倒贴给工具人 dummy 对象
-                dummy.position.copy(position);
-                dummy.quaternion.copy(quaternion);
-                dummy.scale.copy(scale);
-
-                // 4. 【快乐的修改时间】
-                // 既然 dummy 拿到了第 i 个方块当前的真实位置和状态，我们就可以像以前一样修改它了：
-                dummy.position.y += Math.sin(time + i) * 0.01; // 在原来的 Y 轴基础上，做正弦波上下微调
-                dummy.rotation.y += 0.01;                     // 在原来的旋转基础上，再转一点点
-
-                // 5. 【重新压缩】
-                // dummy 被我们改爽了，但显卡不认 dummy。
-                // 我们必须调用 dummy.updateMatrix()，把 dummy 身上刚刚改过的新位置、新旋转，
-                // 重新压缩组合，生成一个全新的【16位数字新矩阵】（存在 dummy.matrix 里）
-                dummy.updateMatrix();
+                // 🌟 配置复用 dummy 的空间姿态
+                instanceDummy.position.set(grass.x, grass.y, grass.z);
                 
-                // 6. 【塞回表格】
-                // 把这个刚刚压缩好的全新矩阵，写回到 InstancedMesh 表格的第 i 个格子里，覆盖旧数据
-                instancedMesh.setMatrixAt(i, dummy.matrix);
+                // 🌟 核心：注入 -90 度的 Pitch 旋转，并使用 'YXZ' 规避死锁
+                instanceDummy.rotation.set(grass.pitch, grass.yaw, grass.roll, 'YXZ');
+                
+                instanceDummy.scale.set(grass.scale, grass.scale, grass.scale);
+                instanceDummy.updateMatrix();
+
+                // 距离分流
+                if (dist < 15) {
+                    highInstance.setMatrixAt(hCount, instanceDummy.matrix);
+                    hCount++;
+                } else if (dist >= 15 && dist < 40) {
+                    midInstance.setMatrixAt(mCount, instanceDummy.matrix);
+                    mCount++;
+                } else {
+                    lowInstance.setMatrixAt(lCount, instanceDummy.matrix);
+                    lCount++;
+                }
             }
 
-            // 7. 走出循环后，大喊一声：“显卡！表格全部重写完了，你下一帧按照新表格画！”
-            instancedMesh.instanceMatrix.needsUpdate = true;
-        }
-        if (controls) controls.update();
-        const delta = clock.getDelta(); // 时钟差
-        activeMixers.forEach(mixer => {
-            mixer.update(delta);
-        });
-        if (composer) {
-            composer.render();
-        }
-        if (labelRenderer) {
-            labelRenderer.render(scene, camera); 
-        }
+            // 更新实际渲染计数
+            highInstance.count = hCount;
+            midInstance.count = mCount;
+            lowInstance.count = lCount;
 
+            // 提交 GPU 更新
+            highInstance.instanceMatrix.needsUpdate = true;
+            midInstance.instanceMatrix.needsUpdate = true;
+            lowInstance.instanceMatrix.needsUpdate = true;
+        }
     }
     animate();
 }
